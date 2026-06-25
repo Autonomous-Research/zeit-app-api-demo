@@ -1,0 +1,8 @@
+{
+  "name": "zeit-app-api-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 4173"
+  }
+}

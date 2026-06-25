@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Zeit App API Demo</title>
+		<link rel="stylesheet" href="./styles.css" />
+	</head>
+	<body>
+		<header class="topbar">
+			<div>
+				<p class="eyebrow">Frontend-only integration demo</p>
+				<h1>Zeit App API</h1>
+			</div>
+			<div class="env-control">
+				<label for="environment">API</label>
+				<select id="environment">
+					<option value="https://pp.zeit.finance/api/app/v1">Production</option>
+					<option value="https://pp-stage.zeit.finance/api/app/v1">Staging</option>
+				</select>
+			</div>
+		</header>
+
+		<main class="layout">
+			<section class="panel vault-browser" aria-labelledby="vaults-heading">
+				<div class="panel-heading">
+					<div>
+						<h2 id="vaults-heading">Vaults</h2>
+						<p>Search public investable vaults.</p>
+					</div>
+					<button id="refreshVaults" type="button">Refresh</button>
+				</div>
+				<form id="searchForm" class="search-row">
+					<input
+						id="searchInput"
+						type="search"
+						placeholder="Search name, ticker, strategy"
+						autocomplete="off"
+					/>
+					<button type="submit">Search</button>
+				</form>
+				<div id="vaultList" class="vault-list" aria-live="polite"></div>
+			</section>
+
+			<section class="panel detail-panel" aria-labelledby="detail-heading">
+				<div class="panel-heading">
+					<div>
+						<h2 id="detail-heading">Selected Vault</h2>
+						<p id="selectedHint">Choose a vault to inspect deposit and claim calls.</p>
+					</div>
+					<button id="connectWallet" type="button">Connect Wallet</button>
+				</div>
+
+				<div id="vaultDetail" class="empty-state">No vault selected.</div>
+
+				<div class="action-grid">
+					<section class="action-box" aria-labelledby="deposit-heading">
+						<h3 id="deposit-heading">Deposit</h3>
+						<div class="input-grid">
+							<label>
+								Amount
+								<input id="depositAmount" type="number" min="0" step="0.01" value="1" />
+							</label>
+							<label>
+								Input asset
+								<select id="depositAsset">
+									<option value="pusd">pUSD</option>
+									<option value="usdce">USDC.e</option>
+								</select>
+							</label>
+						</div>
+						<div class="button-row">
+							<button id="runDeposit" type="button">Run Deposit</button>
+							<button id="showDepositCalldata" type="button" class="secondary">
+								Show Calls
+							</button>
+						</div>
+					</section>
+
+					<section class="action-box" aria-labelledby="balances-heading">
+						<h3 id="balances-heading">Balances & Claims</h3>
+						<div class="button-row">
+							<button id="loadBalances" type="button">Load Balances</button>
+							<button id="claimDeposits" type="button" class="secondary">
+								Claim Shares
+							</button>
+							<button id="claimWithdrawals" type="button" class="secondary">
+								Claim Assets
+							</button>
+						</div>
+						<div id="balanceSummary" class="metric-grid"></div>
+					</section>
+				</div>
+
+				<section class="action-box" aria-labelledby="multichain-heading">
+					<div class="panel-heading compact">
+						<div>
+							<h3 id="multichain-heading">Multi-Chain Claim Prep</h3>
+							<p>Fetches backend prep payloads. It does not execute Relay.</p>
+						</div>
+						<label class="chain-input">
+							Destination chain
+							<input id="destinationChainId" type="number" value="42161" />
+						</label>
+					</div>
+					<div class="button-row">
+						<button id="prepareClaimBridge" type="button" class="secondary">
+							Prepare Claim Shares
+						</button>
+						<button id="prepareClaimAssets" type="button" class="secondary">
+							Prepare Claim Assets
+						</button>
+					</div>
+				</section>
+
+				<section class="output-wrap" aria-labelledby="output-heading">
+					<div class="panel-heading compact">
+						<div>
+							<h3 id="output-heading">Output</h3>
+							<p>API responses, transaction hashes, and call previews.</p>
+						</div>
+						<button id="clearOutput" type="button" class="secondary">Clear</button>
+					</div>
+					<pre id="output">Ready.</pre>
+				</section>
+			</section>
+		</main>
+
+		<script type="module" src="./src/app.js"></script>
+	</body>
+</html>
