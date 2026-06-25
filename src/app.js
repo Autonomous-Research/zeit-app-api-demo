@@ -1,7 +1,9 @@
 import {
+  createPublicClient,
   createWalletClient,
   custom,
   formatUnits,
+  http,
   parseAbi,
   parseUnits,
 } from "https://esm.sh/viem@2.51.2";
@@ -33,6 +35,10 @@ const state = {
   selectedVault: null,
   walletAddress: null,
   walletClient: null,
+  publicClient: createPublicClient({
+    chain: polygon,
+    transport: http("https://polygon-rpc.com"),
+  }),
   balances: null,
 };
 
@@ -60,6 +66,7 @@ const elements = {
   clearOutput: $("clearOutput"),
   output: $("output"),
   selectedHint: $("selectedHint"),
+  status: $("status"),
 };
 
 function backendOrigin() {
@@ -73,6 +80,22 @@ function writeOutput(value) {
 function appendOutput(label, value) {
   const rendered = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   elements.output.textContent = `${elements.output.textContent}\n\n${label}\n${rendered}`;
+}
+
+function getErrorMessage(error) {
+  return (
+    error?.shortMessage ??
+    error?.details ??
+    error?.cause?.shortMessage ??
+    error?.cause?.message ??
+    error?.message ??
+    String(error)
+  );
+}
+
+function setStatus(message, tone = "info") {
+  elements.status.textContent = message;
+  elements.status.className = `status-line ${tone}`;
 }
 
 async function fetchJson(path, options) {
@@ -227,7 +250,12 @@ async function connectWallet() {
     chain: polygon,
     transport: custom(window.ethereum),
   });
+  state.publicClient = createPublicClient({
+    chain: polygon,
+    transport: custom(window.ethereum),
+  });
   elements.connectWallet.textContent = shortAddress(address);
+  setStatus(`Connected ${shortAddress(address)}.`, "success");
   writeOutput({ connected: address });
 }
 
@@ -262,8 +290,33 @@ function getInvestment() {
   return investment;
 }
 
+async function writeContractStep(label, request) {
+  setStatus(`Waiting for wallet confirmation: ${label}.`, "pending");
+  appendOutput("Wallet prompt", label);
+
+  const txHash = await state.walletClient.writeContract({
+    account: state.walletAddress,
+    chain: polygon,
+    ...request,
+  });
+
+  appendOutput("Submitted", { label, txHash });
+  setStatus(`Waiting for Polygon confirmation: ${label}.`, "pending");
+
+  const receipt = await state.publicClient.waitForTransactionReceipt({
+    hash: txHash,
+  });
+  if (receipt.status !== "success") {
+    throw new Error(`${label} reverted: ${txHash}`);
+  }
+
+  appendOutput("Confirmed", { label, txHash, blockNumber: receipt.blockNumber.toString() });
+  return txHash;
+}
+
 async function runDeposit() {
   requireReady();
+  setStatus("Switching wallet to Polygon.", "pending");
   await ensurePolygon();
 
   const investment = getInvestment();
@@ -282,7 +335,7 @@ async function runDeposit() {
     }
 
     txs.push(
-      await state.walletClient.writeContract({
+      await writeContractStep("Approve USDC.e wrapper", {
         address: usdce.address,
         abi: erc20Abi,
         functionName: "approve",
@@ -290,7 +343,7 @@ async function runDeposit() {
       }),
     );
     txs.push(
-      await state.walletClient.writeContract({
+      await writeContractStep("Wrap USDC.e to pUSD", {
         address: usdce.wrapper,
         abi: collateralOnrampAbi,
         functionName: "wrap",
@@ -300,7 +353,7 @@ async function runDeposit() {
   }
 
   txs.push(
-    await state.walletClient.writeContract({
+    await writeContractStep("Approve pUSD deposit", {
       address: pUSD,
       abi: erc20Abi,
       functionName: "approve",
@@ -308,7 +361,7 @@ async function runDeposit() {
     }),
   );
   txs.push(
-    await state.walletClient.writeContract({
+    await writeContractStep("Deposit into vault", {
       address: escrowAdapter,
       abi: escrowAdapterAbi,
       functionName: "depositAsset",
@@ -316,6 +369,7 @@ async function runDeposit() {
     }),
   );
 
+  setStatus("Deposit submitted and confirmed.", "success");
   writeOutput({ action: "deposit", txs });
 }
 
@@ -389,6 +443,8 @@ async function claimDeposits() {
   if (claims.length === 0) throw new Error("No claimable deposit shares.");
 
   const txHash = await state.walletClient.writeContract({
+    account: state.walletAddress,
+    chain: polygon,
     address: entry.escrowAdapter,
     abi: escrowAdapterAbi,
     functionName: "claimDeposits",
@@ -407,6 +463,8 @@ async function claimWithdrawals() {
   if (claims.length === 0) throw new Error("No claimable withdrawal assets.");
 
   const txHash = await state.walletClient.writeContract({
+    account: state.walletAddress,
+    chain: polygon,
     address: entry.escrowAdapter,
     abi: escrowAdapterAbi,
     functionName: "claimWithdrawals",
@@ -460,11 +518,23 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-async function runAction(action) {
+async function runAction(action, label, button) {
+  const previousDisabled = button?.disabled ?? false;
+  if (button) button.disabled = true;
+  setStatus(label, "pending");
+  appendOutput("Status", label);
+
   try {
     await action();
+    if (!elements.status.classList.contains("error")) {
+      setStatus("Done.", "success");
+    }
   } catch (error) {
-    appendOutput("Error", error?.message ?? String(error));
+    const message = getErrorMessage(error);
+    setStatus(message, "error");
+    appendOutput("Error", message);
+  } finally {
+    if (button) button.disabled = previousDisabled;
   }
 }
 
@@ -474,19 +544,37 @@ elements.environment.addEventListener("change", () => {
   state.balances = null;
   loadVaults().catch((error) => writeOutput(error.message));
 });
-elements.refreshVaults.addEventListener("click", () => runAction(() => loadVaults()));
+elements.refreshVaults.addEventListener("click", (event) =>
+  runAction(() => loadVaults(), "Loading vaults.", event.currentTarget),
+);
 elements.searchForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  runAction(() => loadVaults(elements.searchInput.value.trim()));
+  runAction(() => loadVaults(elements.searchInput.value.trim()), "Searching vaults.");
 });
-elements.connectWallet.addEventListener("click", () => runAction(connectWallet));
-elements.runDeposit.addEventListener("click", () => runAction(runDeposit));
-elements.showDepositCalldata.addEventListener("click", () => runAction(showDepositCalls));
-elements.loadBalances.addEventListener("click", () => runAction(loadBalances));
-elements.claimDeposits.addEventListener("click", () => runAction(claimDeposits));
-elements.claimWithdrawals.addEventListener("click", () => runAction(claimWithdrawals));
-elements.prepareClaimBridge.addEventListener("click", () => runAction(prepareClaimBridge));
-elements.prepareClaimAssets.addEventListener("click", () => runAction(prepareClaimAssets));
+elements.connectWallet.addEventListener("click", (event) =>
+  runAction(connectWallet, "Connecting wallet.", event.currentTarget),
+);
+elements.runDeposit.addEventListener("click", (event) =>
+  runAction(runDeposit, "Starting deposit. Watch your wallet for prompts.", event.currentTarget),
+);
+elements.showDepositCalldata.addEventListener("click", (event) =>
+  runAction(showDepositCalls, "Building deposit call preview.", event.currentTarget),
+);
+elements.loadBalances.addEventListener("click", (event) =>
+  runAction(loadBalances, "Loading balances and claims.", event.currentTarget),
+);
+elements.claimDeposits.addEventListener("click", (event) =>
+  runAction(claimDeposits, "Claiming vault shares.", event.currentTarget),
+);
+elements.claimWithdrawals.addEventListener("click", (event) =>
+  runAction(claimWithdrawals, "Claiming withdrawal assets.", event.currentTarget),
+);
+elements.prepareClaimBridge.addEventListener("click", (event) =>
+  runAction(prepareClaimBridge, "Preparing multi-chain share claim.", event.currentTarget),
+);
+elements.prepareClaimAssets.addEventListener("click", (event) =>
+  runAction(prepareClaimAssets, "Preparing multi-chain asset claim.", event.currentTarget),
+);
 elements.clearOutput.addEventListener("click", () => writeOutput("Ready."));
 
 loadVaults().catch((error) => writeOutput(error.message));
