@@ -5,8 +5,8 @@ Small frontend-only demo for the public Zeit app API.
 Run locally:
 
 ```bash
-cd examples/app-api-demo
-python3 -m http.server 4173
+npm install
+npm run dev
 ```
 
 Open:
