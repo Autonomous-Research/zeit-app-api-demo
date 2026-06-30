@@ -310,6 +310,80 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+.compact-metric {
+  min-height: 58px;
+}
+
+.analytics-box {
+  display: grid;
+  gap: 14px;
+}
+
+.analytics-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+h4 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: #fffaf0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  z-index: 1;
+}
+
+td {
+  overflow-wrap: anywhere;
+}
+
+td a {
+  color: #21476f;
+  font-weight: 700;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
 .chain-input {
   width: 190px;
 }
@@ -347,7 +421,9 @@ pre {
   .topbar,
   .layout,
   .action-grid,
-  .input-grid {
+  .input-grid,
+  .analytics-controls,
+  .analytics-grid {
     grid-template-columns: 1fr;
   }
 

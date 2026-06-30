@@ -43,6 +43,9 @@ Auth: none. Read-only. Only public deployed vaults are returned by default.
 GET /vaults?limit=20&offset=0
 GET /vaults/search?q=macro&limit=20
 GET /vaults/:vaultId
+GET /vaults/:vaultId/snapshots?limit=100&offset=0&triggerType=roll
+GET /vaults/:vaultId/apy-history?period=30d
+GET /vaults/:vaultId/positions?limit=100
 GET /addresses/:address/balances?includeClaims=false
 ```
 
@@ -52,6 +55,9 @@ Examples:
 curl 'https://pp.zeit.finance/api/app/v1/vaults?limit=10'
 curl 'https://pp.zeit.finance/api/app/v1/vaults/search?q=algo'
 curl 'https://pp.zeit.finance/api/app/v1/vaults/vault_...'
+curl 'https://pp.zeit.finance/api/app/v1/vaults/vault_.../snapshots?limit=50&triggerType=roll'
+curl 'https://pp.zeit.finance/api/app/v1/vaults/vault_.../apy-history?period=30d'
+curl 'https://pp.zeit.finance/api/app/v1/vaults/vault_.../positions?limit=25'
 curl 'https://pp.zeit.finance/api/app/v1/addresses/0x.../balances?includeClaims=true'
 ```
 
@@ -69,11 +75,24 @@ Important fields:
 
 - `data.status.investable`: whether deposits should be enabled.
 - `data.metrics`: price, APY, TVL, holders, volume.
+- `data.performance`: detailed APY breakdown for vault detail views.
+- `data.latestSnapshot`: latest NAV, PPS, projected NAV/PPS, and APY windows.
 - `data.capacity`: current vault capacity, with raw 6-decimal USDC-style strings.
 - `data.contracts`: public deployed contract addresses.
 - `data.investment.escrowAdapter`: vault-specific deposit contract.
 - `data.investment.settlementAsset`: current vault asset, normally pUSD on Polygon.
 - `data.investment.acceptedInputAssets`: accepted user input assets, currently pUSD and USDC.e on Polygon.
+
+Historical analytics:
+
+- `GET /vaults/:vaultId/snapshots`: paginated NAV/PPS snapshots. Use `triggerType=roll` for roll-only chart points or omit it for all saved snapshots.
+- `GET /vaults/:vaultId/apy-history`: APY time series. Supported `period` values are `24h`, `7d`, `30d`, `90d`, and `all`.
+- `GET /vaults/:vaultId/positions`: current public Polymarket basket for the vault strategy wallet. Some vaults may return no positions or an unavailable error if no public strategy wallet is configured.
+
+Raw historical amount fields:
+
+- `*NavRaw`, `*PositionsValueRaw`, and `cashBalanceRaw`: 6 decimals.
+- `*PpsRaw` and `totalSupplyRaw`: 18 decimals.
 
 Address balances:
 

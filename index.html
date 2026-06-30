@@ -52,6 +52,65 @@
 				</div>
 
 				<div id="vaultDetail" class="empty-state">No vault selected.</div>
+				<section class="action-box analytics-box" aria-labelledby="analytics-heading">
+					<div class="panel-heading compact">
+						<div>
+							<h3 id="analytics-heading">Vault Analytics</h3>
+							<p>Latest performance, historical snapshots, APY history, and positions.</p>
+						</div>
+						<button id="loadAnalytics" type="button" class="secondary">
+							Refresh Analytics
+						</button>
+					</div>
+
+					<div id="performanceSummary" class="metric-grid"></div>
+
+					<div class="analytics-controls">
+						<label>
+							Snapshot type
+							<select id="snapshotTrigger">
+								<option value="">All snapshots</option>
+								<option value="roll">Roll only</option>
+								<option value="cron">Cron only</option>
+							</select>
+						</label>
+						<button id="loadSnapshots" type="button" class="secondary">
+							Load Snapshots
+						</button>
+						<label>
+							APY window
+							<select id="apyPeriod">
+								<option value="30d">30 days</option>
+								<option value="24h">24 hours</option>
+								<option value="7d">7 days</option>
+								<option value="90d">90 days</option>
+								<option value="all">All time</option>
+							</select>
+						</label>
+						<button id="loadApyHistory" type="button" class="secondary">
+							Load APY
+						</button>
+						<button id="loadPositions" type="button" class="secondary">
+							Load Positions
+						</button>
+					</div>
+
+					<div class="analytics-grid">
+						<div>
+							<h4>Snapshot history</h4>
+							<div id="snapshotHistory" class="empty-state">Select a vault.</div>
+						</div>
+						<div>
+							<h4>APY history</h4>
+							<div id="apyHistory" class="empty-state">Select a vault.</div>
+						</div>
+					</div>
+
+					<div>
+						<h4>Positions</h4>
+						<div id="positionBasket" class="empty-state">Select a vault.</div>
+					</div>
+				</section>
 				<div id="status" class="status-line" role="status" aria-live="polite">
 					Ready.
 				</div>

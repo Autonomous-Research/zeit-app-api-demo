@@ -33,6 +33,9 @@ const state = {
   apiBase: "https://pp.zeit.finance/api/app/v1",
   vaults: [],
   selectedVault: null,
+  snapshots: null,
+  apyHistory: null,
+  positions: null,
   walletAddress: null,
   walletClient: null,
   publicClient: createPublicClient({
@@ -52,6 +55,16 @@ const elements = {
   vaultList: $("vaultList"),
   connectWallet: $("connectWallet"),
   vaultDetail: $("vaultDetail"),
+  loadAnalytics: $("loadAnalytics"),
+  performanceSummary: $("performanceSummary"),
+  snapshotTrigger: $("snapshotTrigger"),
+  loadSnapshots: $("loadSnapshots"),
+  snapshotHistory: $("snapshotHistory"),
+  apyPeriod: $("apyPeriod"),
+  loadApyHistory: $("loadApyHistory"),
+  apyHistory: $("apyHistory"),
+  loadPositions: $("loadPositions"),
+  positionBasket: $("positionBasket"),
   depositAmount: $("depositAmount"),
   depositAsset: $("depositAsset"),
   runDeposit: $("runDeposit"),
@@ -132,6 +145,49 @@ function rawShares(value) {
   return `${formatUnits(BigInt(value || "0"), 18)} shares`;
 }
 
+function rawTokenAmount(value, decimals, suffix = "", maximumFractionDigits = 4) {
+  if (value === null || value === undefined || value === "") return "n/a";
+  try {
+    const formatted = formatUnits(BigInt(value), decimals);
+    const numeric = Number(formatted);
+    const display = Number.isFinite(numeric)
+      ? numeric.toLocaleString(undefined, { maximumFractionDigits })
+      : formatted;
+    return suffix ? `${display} ${suffix}` : display;
+  } catch {
+    return "n/a";
+  }
+}
+
+function formatPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  const maximumFractionDigits = Math.abs(value) >= 100 ? 1 : 2;
+  return `${value.toLocaleString(undefined, { maximumFractionDigits })}%`;
+}
+
+function formatUsdNumber(value) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+    : "n/a";
+}
+
+function formatDateTime(value) {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "n/a";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function requireSelectedVault() {
+  if (!state.selectedVault) throw new Error("Select a vault first.");
+  return state.selectedVault;
+}
+
 function selectedBalanceEntry() {
   if (!state.selectedVault || !state.balances) return null;
   return state.balances.vaults.find((entry) => entry.vault.id === state.selectedVault.id) ?? null;
@@ -179,8 +235,12 @@ async function selectVault(vaultId) {
   const response = await fetchJson(`/vaults/${encodeURIComponent(vaultId)}`);
   state.selectedVault = response.data;
   state.balances = null;
+  state.snapshots = null;
+  state.apyHistory = null;
+  state.positions = null;
   renderVaultList();
   renderVaultDetail();
+  renderAnalytics();
   renderBalances();
   writeOutput(response);
 }
@@ -205,8 +265,205 @@ function renderVaultDetail() {
 			<div><dt>Escrow adapter</dt><dd>${escapeHtml(investment.escrowAdapter ?? "n/a")}</dd></div>
 			<div><dt>Share token</dt><dd>${escapeHtml(investment.shareToken ?? vault.contracts?.shareToken ?? "n/a")}</dd></div>
 			<div><dt>Settlement asset</dt><dd>${escapeHtml(investment.settlementAsset?.symbol ?? "n/a")} ${escapeHtml(investment.settlementAsset?.address ?? "")}</dd></div>
+			<div><dt>Headline APY</dt><dd>${escapeHtml(formatPercent(vault.metrics?.apy ?? vault.performance?.apy))}</dd></div>
+			<div><dt>Realizable NAV</dt><dd>${escapeHtml(rawTokenAmount(vault.latestSnapshot?.realizableNavRaw, 6, "USD", 2))}</dd></div>
+			<div><dt>Realizable PPS</dt><dd>${escapeHtml(rawTokenAmount(vault.latestSnapshot?.realizablePpsRaw, 18))}</dd></div>
 			<div><dt>Capacity remaining</dt><dd>${rawUsd(vault.capacity?.remainingRaw ?? "0")}</dd></div>
 		</dl>
+	`;
+}
+
+function renderAnalytics() {
+  renderPerformanceSummary();
+  renderSnapshots();
+  renderApyHistory();
+  renderPositions();
+}
+
+function renderPerformanceSummary() {
+  const vault = state.selectedVault;
+  if (!vault) {
+    elements.performanceSummary.innerHTML = "";
+    return;
+  }
+
+  const latest = vault.latestSnapshot ?? {};
+  const performance = vault.performance ?? {};
+  const metrics = [
+    ["Headline APY", formatPercent(vault.metrics?.apy ?? performance.apy)],
+    ["Projected APY", formatPercent(performance.projectedApy)],
+    ["24h APY", formatPercent(latest.apy24h ?? performance.apy24h)],
+    ["7d APY", formatPercent(latest.apy7d ?? performance.apy7d)],
+    ["30d APY", formatPercent(latest.apy30d ?? performance.apy30d)],
+    ["PPS 24h", formatPercent(performance.ppsChange24h)],
+    ["Projected NAV", rawTokenAmount(latest.projectedNavRaw, 6, "USD", 2)],
+    ["Snapshot", formatDateTime(latest.snapshotAt)],
+  ];
+
+  elements.performanceSummary.innerHTML = metrics
+    .map(
+      ([label, value]) => `
+				<div class="metric compact-metric">
+					<span>${escapeHtml(label)}</span>
+					<strong>${escapeHtml(value)}</strong>
+				</div>
+			`,
+    )
+    .join("");
+}
+
+function renderSnapshots() {
+  const rows = state.snapshots?.data ?? null;
+  if (!state.selectedVault) {
+    elements.snapshotHistory.className = "empty-state";
+    elements.snapshotHistory.textContent = "Select a vault.";
+    return;
+  }
+  if (!rows) {
+    elements.snapshotHistory.className = "empty-state";
+    elements.snapshotHistory.textContent = "Load snapshot history.";
+    return;
+  }
+  if (rows.length === 0) {
+    elements.snapshotHistory.className = "empty-state";
+    elements.snapshotHistory.textContent = "No snapshots returned.";
+    return;
+  }
+
+  elements.snapshotHistory.className = "table-wrap";
+  elements.snapshotHistory.innerHTML = `
+		<table>
+			<thead>
+				<tr>
+					<th>Time</th>
+					<th>Type</th>
+					<th>Epoch</th>
+					<th>NAV</th>
+					<th>PPS</th>
+					<th>APY 30d</th>
+				</tr>
+			</thead>
+			<tbody>
+				${rows
+          .map(
+            (row) => `
+					<tr>
+						<td>${escapeHtml(formatDateTime(row.snapshotAt))}</td>
+						<td>${escapeHtml(row.triggerType ?? "n/a")}</td>
+						<td>${escapeHtml(row.epoch ?? "n/a")}</td>
+						<td>${escapeHtml(rawTokenAmount(row.realizableNavRaw, 6, "USD", 2))}</td>
+						<td>${escapeHtml(rawTokenAmount(row.realizablePpsRaw, 18))}</td>
+						<td>${escapeHtml(formatPercent(row.apy30d))}</td>
+					</tr>
+				`,
+          )
+          .join("")}
+			</tbody>
+		</table>
+	`;
+}
+
+function renderApyHistory() {
+  const rows = state.apyHistory?.data ?? null;
+  if (!state.selectedVault) {
+    elements.apyHistory.className = "empty-state";
+    elements.apyHistory.textContent = "Select a vault.";
+    return;
+  }
+  if (!rows) {
+    elements.apyHistory.className = "empty-state";
+    elements.apyHistory.textContent = "Load APY history.";
+    return;
+  }
+  if (rows.length === 0) {
+    elements.apyHistory.className = "empty-state";
+    elements.apyHistory.textContent = "No APY history returned.";
+    return;
+  }
+
+  elements.apyHistory.className = "table-wrap";
+  elements.apyHistory.innerHTML = `
+		<table>
+			<thead>
+				<tr>
+					<th>Time</th>
+					<th>APY</th>
+					<th>Projected</th>
+					<th>Annualized</th>
+					<th>Epoch</th>
+				</tr>
+			</thead>
+			<tbody>
+				${rows
+          .map(
+            (row) => `
+					<tr>
+						<td>${escapeHtml(formatDateTime(row.timestamp))}</td>
+						<td>${escapeHtml(formatPercent(row.apy))}</td>
+						<td>${escapeHtml(formatPercent(row.projectedApy))}</td>
+						<td>${escapeHtml(formatPercent(row.annualizedApy))}</td>
+						<td>${escapeHtml(row.epoch ?? "n/a")}</td>
+					</tr>
+				`,
+          )
+          .join("")}
+			</tbody>
+		</table>
+	`;
+}
+
+function renderPositions() {
+  const rows = state.positions?.data ?? null;
+  if (!state.selectedVault) {
+    elements.positionBasket.className = "empty-state";
+    elements.positionBasket.textContent = "Select a vault.";
+    return;
+  }
+  if (!rows) {
+    elements.positionBasket.className = "empty-state";
+    elements.positionBasket.textContent = "Load positions.";
+    return;
+  }
+  if (rows.length === 0) {
+    elements.positionBasket.className = "empty-state";
+    elements.positionBasket.textContent = "No positions returned.";
+    return;
+  }
+
+  elements.positionBasket.className = "table-wrap";
+  elements.positionBasket.innerHTML = `
+		<table>
+			<thead>
+				<tr>
+					<th>Market</th>
+					<th>Outcome</th>
+					<th>Size</th>
+					<th>Price</th>
+					<th>Value</th>
+				</tr>
+			</thead>
+			<tbody>
+				${rows
+          .map(
+            (row) => `
+					<tr>
+						<td>
+							${
+                row.polymarketUrl
+                  ? `<a href="${escapeHtml(row.polymarketUrl)}" target="_blank" rel="noreferrer">${escapeHtml(row.marketQuestion ?? row.conditionId ?? "Market")}</a>`
+                  : escapeHtml(row.marketQuestion ?? row.conditionId ?? "Market")
+              }
+						</td>
+						<td>${escapeHtml(row.outcome ?? "n/a")}</td>
+						<td>${escapeHtml(formatPositionNumber(row.size))}</td>
+						<td>${escapeHtml(formatPositionNumber(row.curPrice))}</td>
+						<td>${escapeHtml(formatUsdNumber(row.currentValue))}</td>
+					</tr>
+				`,
+          )
+          .join("")}
+			</tbody>
+		</table>
 	`;
 }
 
@@ -235,6 +492,85 @@ function renderBalances() {
 			`,
     )
     .join("");
+}
+
+function formatPositionNumber(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+async function loadSnapshots({ silent = false } = {}) {
+  const vault = requireSelectedVault();
+  const params = new URLSearchParams({ limit: "50", offset: "0" });
+  if (elements.snapshotTrigger.value) {
+    params.set("triggerType", elements.snapshotTrigger.value);
+  }
+
+  const response = await fetchJson(`/vaults/${encodeURIComponent(vault.id)}/snapshots?${params}`);
+  state.snapshots = response;
+  renderSnapshots();
+  if (!silent) writeOutput(response);
+  return response;
+}
+
+async function loadApyHistory({ silent = false } = {}) {
+  const vault = requireSelectedVault();
+  const params = new URLSearchParams({
+    period: elements.apyPeriod.value || "30d",
+    limit: "100",
+  });
+
+  const response = await fetchJson(`/vaults/${encodeURIComponent(vault.id)}/apy-history?${params}`);
+  state.apyHistory = response;
+  renderApyHistory();
+  if (!silent) writeOutput(response);
+  return response;
+}
+
+async function loadPositions({ silent = false } = {}) {
+  const vault = requireSelectedVault();
+  const response = await fetchJson(`/vaults/${encodeURIComponent(vault.id)}/positions?limit=25`);
+  state.positions = response;
+  renderPositions();
+  if (!silent) writeOutput(response);
+  return response;
+}
+
+async function loadAnalytics() {
+  requireSelectedVault();
+  const results = await Promise.allSettled([
+    loadSnapshots({ silent: true }),
+    loadApyHistory({ silent: true }),
+    loadPositions({ silent: true }),
+  ]);
+
+  const summary = {
+    action: "load-analytics",
+    snapshots: settledSummary(results[0]),
+    apyHistory: settledSummary(results[1]),
+    positions: settledSummary(results[2]),
+  };
+  writeOutput(summary);
+
+  const failures = Object.entries(summary)
+    .filter(([, value]) => value?.ok === false)
+    .map(([key, value]) => `${key}: ${value.error}`);
+  if (failures.length > 0) {
+    setStatus(`Loaded analytics with ${failures.length} warning(s).`, "success");
+    appendOutput("Warnings", failures);
+  }
+}
+
+function settledSummary(result) {
+  if (result.status === "fulfilled") {
+    return {
+      ok: true,
+      count: Array.isArray(result.value?.data)
+        ? result.value.data.length
+        : (result.value?.count ?? result.value?.totalCount ?? 0),
+    };
+  }
+  return { ok: false, error: getErrorMessage(result.reason) };
 }
 
 async function connectWallet() {
@@ -542,6 +878,12 @@ elements.environment.addEventListener("change", () => {
   state.apiBase = elements.environment.value;
   state.selectedVault = null;
   state.balances = null;
+  state.snapshots = null;
+  state.apyHistory = null;
+  state.positions = null;
+  renderVaultDetail();
+  renderAnalytics();
+  renderBalances();
   loadVaults().catch((error) => writeOutput(error.message));
 });
 elements.refreshVaults.addEventListener("click", (event) =>
@@ -553,6 +895,18 @@ elements.searchForm.addEventListener("submit", (event) => {
 });
 elements.connectWallet.addEventListener("click", (event) =>
   runAction(connectWallet, "Connecting wallet.", event.currentTarget),
+);
+elements.loadAnalytics.addEventListener("click", (event) =>
+  runAction(loadAnalytics, "Loading analytics.", event.currentTarget),
+);
+elements.loadSnapshots.addEventListener("click", (event) =>
+  runAction(loadSnapshots, "Loading snapshot history.", event.currentTarget),
+);
+elements.loadApyHistory.addEventListener("click", (event) =>
+  runAction(loadApyHistory, "Loading APY history.", event.currentTarget),
+);
+elements.loadPositions.addEventListener("click", (event) =>
+  runAction(loadPositions, "Loading position basket.", event.currentTarget),
 );
 elements.runDeposit.addEventListener("click", (event) =>
   runAction(runDeposit, "Starting deposit. Watch your wallet for prompts.", event.currentTarget),
